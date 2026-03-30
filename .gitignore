@@ -1,0 +1,6 @@
+routes/*.html
+routes/_geocode_cache.json
+routes/_web_cache.json
+__pycache__/
+*.pyc
+.env

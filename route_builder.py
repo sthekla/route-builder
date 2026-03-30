@@ -89,7 +89,7 @@ def airtable_get(token, base_id, table_id, filter_formula=None, fields=None):
     records = []
     offset = None
     while True:
-        params = {"maxRecords": "100"}
+        params = {"pageSize": "100"}
         if filter_formula:
             params["filterByFormula"] = filter_formula
         if fields:
@@ -179,16 +179,28 @@ def geocode(address, city, state, zip_code=""):
         }
         url = NOMINATIM_URL + "?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, headers={"User-Agent": NOMINATIM_UA})
-        try:
-            with urllib.request.urlopen(req, timeout=15) as r:
-                results = json.load(r)
-            if results:
-                lat = float(results[0]["lat"])
-                lng = float(results[0]["lon"])
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    results = json.load(r)
+                if results:
+                    lat = float(results[0]["lat"])
+                    lng = float(results[0]["lon"])
                 break
-        except Exception as e:
-            print(f"[WARN] Geocode error for '{q}': {e}")
-        time.sleep(1.1)  # Respect 1 req/sec limit
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    wait = 5 * (attempt + 1)
+                    print(f"  [WARN] Nominatim 429, waiting {wait}s...")
+                    time.sleep(wait)
+                else:
+                    print(f"[WARN] Geocode error for '{q}': {e}")
+                    break
+            except Exception as e:
+                print(f"[WARN] Geocode error for '{q}': {e}")
+                break
+        if lat:
+            break
+        time.sleep(1.5)  # Respect 1 req/sec limit (1.5s for safety)
 
     _geocode_cache[key] = (lat, lng)
     save_geocode_cache()
@@ -369,9 +381,15 @@ def parse_opportunity(record):
     addr_raw = f.get("Venue Address", [""])
     address = str(addr_raw[0] if isinstance(addr_raw, list) else addr_raw).replace("\n", " ").strip()
     
-    city = f.get("Venue City") or (f.get("City (from Account Name)", [""])[0] if isinstance(f.get("City (from Account Name)", [""]), list) else "")
-    state = f.get("Venue State") or (f.get("State (from Account Name)", [""])[0] if isinstance(f.get("State (from Account Name)", [""]), list) else "")
-    
+    def _extract_str(val):
+        """Extract a string from a value that may be a list, str, or None."""
+        if isinstance(val, list):
+            return str(val[0]).strip() if val else ""
+        return str(val or "").strip()
+
+    city = _extract_str(f.get("Venue City") or f.get("City (from Account Name)", ""))
+    state = _extract_str(f.get("Venue State") or f.get("State (from Account Name)", ""))
+
     return {
         "id": record["id"],
         "opportunity_name": opp_name,
@@ -379,8 +397,8 @@ def parse_opportunity(record):
         "show_date": f.get("Show Start Date", ""),
         "venue_name": venue_name,
         "address": address,
-        "city": str(city).strip(),
-        "state": str(state).strip(),
+        "city": city,
+        "state": state,
         "capacity": (f.get("Size (from Account Name)", [0]) or [0])[0] if isinstance(f.get("Size (from Account Name)"), list) else f.get("Size (from Account Name)", 0),
         "website": (f.get("Company Website (from Account Name)", [""]) or [""])[0] if isinstance(f.get("Company Website (from Account Name)"), list) else "",
         "account_id": (f.get("Account Name", []) or [])[0] if isinstance(f.get("Account Name"), list) else None,

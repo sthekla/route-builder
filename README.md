@@ -151,7 +151,35 @@ Delete these files to force fresh lookups.
 
 ## Notes
 
-- The script respects Nominatim's 1 req/sec rate limit with 1-second delays
+- The script respects Nominatim's 1 req/sec rate limit with 1.5-second delays between calls
 - Web searches have 2-second delays between requests
 - Missing data is handled gracefully (blank address → skip geocoding, etc.)
 - Employee/personal PII is never included in reports — only venue business data
+
+## ⏱ Expected Runtime
+
+The Airtable Accounts table has ~9,800 records. Geocoding all of them takes about 4–5 hours on first run (1.5s/request × 9800 accounts).
+
+**Good news:** Results are cached in `routes/_geocode_cache.json`. Subsequent runs are fast (cached lookups are instant).
+
+**Recommended workflow:**
+1. Run `python3 route_builder_single.py "ShowName"` for quick one-off reports — it still geocodes all accounts but caches as it goes
+2. Let `route_builder.py` run overnight to generate all 54+ reports
+3. After the first full run, re-runs take only a few minutes
+
+The geocode cache persists between runs and grows over time. Delete it to force re-geocoding.
+
+## 🏃 Quick Start (Recommended)
+
+For a fast first report, run the single-show mode:
+```bash
+python3 route_builder_single.py "LNC- Charlotte NC- 9/3/2026"
+```
+
+Open `routes/LNC-Charlotte-E.html` in a browser to see the map and table.
+
+For all shows (run overnight):
+```bash
+nohup python3 route_builder.py > routes/run.log 2>&1 &
+tail -f routes/run.log  # monitor progress
+```
